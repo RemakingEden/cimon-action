@@ -146,6 +146,11 @@ async function run(config) {
         core.warning(`SOC: could not read job summary (non-fatal): ${err.message}`);
     }
 
+    // Print raw output to workflow logs for debugging.
+    core.info('=== CIMON RAW OUTPUT ===');
+    core.info(stopOutput);
+    core.info('=== END CIMON RAW OUTPUT ===');
+
     // Forward security events to SOC (best-effort, never fails the workflow).
     await sendToSOC(config.soc.endpoint, {
         healthy: retval === 0,
