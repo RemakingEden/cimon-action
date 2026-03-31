@@ -128,7 +128,7 @@ function buildSOCPayload({ stopOutput, jobSummary, exitCode }) {
         runnerOs: process.env.RUNNER_OS,
         imageVersion: process.env.ImageVersion,
         cimonVersion: process.env.CIMON_VERSION,
-        networkEvents: parseNetworkEvents(stopOutput),
+        networkEvents: parseNetworkEventsFromJobSummary(jobSummary),
         processTree,
         sbomEntries: parseSBOMEntries(stopOutput),
     };
@@ -144,27 +144,65 @@ async function sendToSOC(endpoint, payload) {
     }
 }
 
-function parseNetworkEvents(stopOutput) {
-    const events = [];
-    for (const line of stopOutput.split('\n')) {
-        try {
-            const entry = JSON.parse(line.trim());
-            if (entry.type === 'network_event_t#connect') {
-                events.push({
-                    pid: entry.pid,
-                    process: entry.comm,
-                    protocol: entry.protocol,
-                    host: entry.host,
-                    ip: entry.ip,
-                    port: entry.port,
-                    allowed: entry.allowed,
-                    blocked: entry.blocked,
-                    time: entry.time,
-                });
-            }
-        } catch (_) {}
+function parseNetworkEventsFromJobSummary(jobSummary) {
+    const emptyResult = (parseError) => ({ events: [], parseError });
+
+    if (!jobSummary) return emptyResult(null);
+
+    try {
+        const sectionMatch = jobSummary.match(/###\s*TCP\s*\/\s*UDP\s*Events[\s\S]*?(<details[\s\S]*?<\/details>|\|[\s\S]*?)(?=\n#|$)/i);
+        if (!sectionMatch) return emptyResult('TCP/UDP events section not found in job summary');
+
+        const tableRows = extractMarkdownTableRows(sectionMatch[0]);
+        if (tableRows.length === 0) return emptyResult('No rows found in network events table');
+
+        const { headers, rows } = tableRows;
+        const events = rows.map((row) => mapRowToNetworkEvent(headers, row)).filter(Boolean);
+
+        return { events, parseError: null };
+    } catch (err) {
+        return emptyResult(err.message);
     }
-    return events;
+}
+
+function extractMarkdownTableRows(text) {
+    const lines = text.split('\n').map((l) => l.trim()).filter((l) => l.startsWith('|'));
+    if (lines.length < 2) return { headers: [], rows: [] };
+
+    const parseCells = (line) =>
+        line.split('|').slice(1, -1).map((cell) => cell.trim());
+
+    const headers = parseCells(lines[0]).map((h) => h.toLowerCase());
+    const dataRows = lines.slice(2).map(parseCells);
+
+    return { headers, rows: dataRows };
+}
+
+function mapRowToNetworkEvent(headers, cells) {
+    const get = (name) => {
+        const index = headers.findIndex((h) => h.includes(name));
+        return index !== -1 ? cells[index] : null;
+    };
+
+    const pid = parseInt(get('pid'), 10);
+    if (isNaN(pid)) return null;
+
+    const allowedValue = get('allow');
+    const addressValue = get('address') ?? '';
+    const [ip, port] = addressValue.includes(':')
+        ? addressValue.split(':')
+        : [addressValue, null];
+
+    return {
+        pid,
+        process: get('process'),
+        protocol: get('protocol'),
+        address: addressValue || null,
+        ip: ip || null,
+        port: port ? parseInt(port, 10) : null,
+        host: get('domain'),
+        allowed: allowedValue !== null ? !allowedValue.includes('❌') : null,
+    };
 }
 
 function parseProcessTree(jobSummary) {
