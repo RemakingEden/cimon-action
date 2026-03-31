@@ -135,6 +135,17 @@ async function run(config) {
     // Upload SBOM files as artifacts (best-effort, never fails the workflow).
     await uploadSBOMArtifacts(sbomEntries);
 
+    // Read process tree and security report from the step summary file.
+    let jobSummary = '';
+    try {
+        const summaryPath = process.env.GITHUB_STEP_SUMMARY;
+        if (summaryPath && fs.existsSync(summaryPath)) {
+            jobSummary = fs.readFileSync(summaryPath, 'utf8');
+        }
+    } catch (err) {
+        core.warning(`SOC: could not read job summary (non-fatal): ${err.message}`);
+    }
+
     // Forward security events to SOC (best-effort, never fails the workflow).
     await sendToSOC(config.soc.endpoint, {
         healthy: retval === 0,
@@ -146,6 +157,7 @@ async function run(config) {
         cimonVersion: process.env.CIMON_VERSION,
         sbomEntries,
         rawOutput: stopOutput,
+        jobSummary,
     });
 
     if (retval !== 0) {
