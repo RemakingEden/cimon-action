@@ -11,7 +11,7 @@ import {
 } from './sbom-summary.js';
 
 const CIMON_SCRIPT_DOWNLOAD_URL =
-    'https://cimon-releases.s3.amazonaws.com/install.sh';
+    'https://raw.githubusercontent.com/RemakingEden/cimon-releases/main/install.sh';
 const CIMON_SCRIPT_PATH = '/tmp/install.sh';
 const CIMON_EXECUTABLE_DIR = '/tmp/cimon';
 const CIMON_EXECUTABLE_PATH = '/tmp/cimon/cimon';
@@ -28,6 +28,9 @@ function getActionConfig() {
     return {
         cimon: {
             logLevel: core.getInput('log-level'),
+        },
+        soc: {
+            endpoint: core.getInput('soc-endpoint'),
         },
     };
 }
@@ -132,8 +135,36 @@ async function run(config) {
     // Upload SBOM files as artifacts (best-effort, never fails the workflow).
     await uploadSBOMArtifacts(sbomEntries);
 
+    // Forward security events to SOC (best-effort, never fails the workflow).
+    await sendToSOC(config.soc.endpoint, {
+        healthy: retval === 0,
+        repository: process.env.GITHUB_REPOSITORY,
+        workflow: process.env.GITHUB_WORKFLOW,
+        runId: process.env.GITHUB_RUN_ID,
+        runnerOs: process.env.RUNNER_OS,
+        imageVersion: process.env.ImageVersion,
+        cimonVersion: process.env.CIMON_VERSION,
+        sbomEntries,
+        rawOutput: stopOutput,
+    });
+
     if (retval !== 0) {
         throw new Error(`Failed stopping Cimon process: ${retval}`);
+    }
+}
+
+/**
+ * Forwards security events to the configured SOC endpoint.
+ * Best-effort: errors are logged as warnings, never fail the workflow.
+ */
+async function sendToSOC(endpoint, payload) {
+    if (!endpoint) return;
+
+    try {
+        const response = await httpClient.postJson(endpoint, payload);
+        core.info(`SOC: event forwarded (status=${response.statusCode})`);
+    } catch (err) {
+        core.warning(`SOC: failed to forward event (non-fatal): ${err.message}`);
     }
 }
 

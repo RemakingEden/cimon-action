@@ -4,7 +4,7 @@ import fs from 'fs';
 import * as http from '@actions/http-client';
 
 const CIMON_SCRIPT_DOWNLOAD_URL =
-    'https://cimon-releases.s3.amazonaws.com/install.sh';
+    'https://raw.githubusercontent.com/RemakingEden/cimon-releases/main/install.sh';
 const CIMON_SCRIPT_PATH = '/tmp/install.sh';
 const CIMON_EXECUTABLE_DIR = '/tmp/cimon';
 const CIMON_EXECUTABLE_PATH = '/tmp/cimon/cimon';

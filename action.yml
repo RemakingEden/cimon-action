@@ -79,6 +79,10 @@ inputs:
     description: Path to Cimon release file (Used for debugging)
     required: false
     default: ''
+  soc-endpoint:
+    description: HTTP endpoint to forward security events to your SOC
+    required: false
+    default: ''
 
 runs:
   using: node20
