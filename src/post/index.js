@@ -3,6 +3,7 @@ import exec from '@actions/exec';
 import fs from 'fs';
 import path from 'path';
 import * as http from '@actions/http-client';
+import { BlobServiceClient, StorageSharedKeyCredential } from '@azure/storage-blob';
 import { DefaultArtifactClient } from '@actions/artifact';
 import {
     parseSBOMEntries,
@@ -28,7 +29,10 @@ function getActionConfig() {
             logLevel: core.getInput('log-level'),
         },
         soc: {
-            endpoint: core.getInput('soc-endpoint'),
+            storageAccount: core.getInput('soc-storage-account'),
+            storageKey: core.getInput('soc-storage-key'),
+            container: core.getInput('soc-container'),
+            // Future: add sasUrl here and branch in sendToSOC
         },
     };
 }
@@ -42,7 +46,7 @@ async function run(config) {
 
     const jobSummary = readJobSummary();
     const socPayload = buildSOCPayload({ stopOutput, jobSummary, exitCode });
-    await sendToSOC(config.soc.endpoint, socPayload);
+    await sendToSOC(config.soc, socPayload);
 
     if (exitCode !== 0) {
         throw new Error(`Failed stopping Cimon process: ${exitCode}`);
@@ -134,13 +138,29 @@ function buildSOCPayload({ stopOutput, jobSummary, exitCode }) {
     };
 }
 
-async function sendToSOC(endpoint, payload) {
-    if (!endpoint) return;
+async function sendToSOC(socConfig, payload) {
+    if (!socConfig.storageAccount || !socConfig.storageKey) return;
+
+    const timestamp = new Date().toISOString().replace(/[:\-T]/g, '').slice(0, 15);
+    const blobName = `cimon_${timestamp}.json`;
+
     try {
-        const response = await httpClient.postJson(endpoint, payload);
-        core.info(`SOC: event forwarded (status=${response.statusCode})`);
+        const credential = new StorageSharedKeyCredential(socConfig.storageAccount, socConfig.storageKey);
+        const serviceClient = new BlobServiceClient(
+            `https://${socConfig.storageAccount}.blob.core.windows.net`,
+            credential
+        );
+        const body = JSON.stringify(payload, null, 2);
+        await serviceClient
+            .getContainerClient(socConfig.container)
+            .getBlockBlobClient(blobName)
+            .upload(body, Buffer.byteLength(body), {
+                blobHTTPHeaders: { blobContentType: 'application/json' },
+            });
+
+        core.info(`SOC: event written to blob storage (${socConfig.container}/${blobName})`);
     } catch (err) {
-        core.warning(`SOC: failed to forward event (non-fatal): ${err.message}`);
+        core.warning(`SOC: blob upload failed (non-fatal): ${err.message}`);
     }
 }
 

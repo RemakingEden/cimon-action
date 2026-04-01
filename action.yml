@@ -79,10 +79,18 @@ inputs:
     description: Path to Cimon release file (Used for debugging)
     required: false
     default: ''
-  soc-endpoint:
-    description: HTTP endpoint to forward security events to your SOC
+  soc-storage-account:
+    description: Azure Storage account name. Store as a GitHub Actions Variable (not secret).
     required: false
     default: ''
+  soc-storage-key:
+    description: Azure Storage account key. Store as a GitHub Actions Secret.
+    required: false
+    default: ''
+  soc-container:
+    description: Azure Blob container to write events into. Store as a GitHub Actions Variable.
+    required: false
+    default: 'cimon-events'
 
 runs:
   using: node20
