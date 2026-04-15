@@ -16,7 +16,7 @@
     "type": "module",
     "devDependencies": {
         "@actions/artifact": "^2.3.2",
-        "@actions/core": "^1.11.1",
+        "@actions/core": "^3.0.0",
         "@actions/exec": "^1.1.1",
         "@vercel/ncc": "^0.34.0"
     }

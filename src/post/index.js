@@ -1,4 +1,4 @@
-import core from '@actions/core';
+import * as core from '@actions/core';
 import exec from '@actions/exec';
 import fs from 'fs';
 import path from 'path';
@@ -31,7 +31,8 @@ function getActionConfig() {
         soc: {
             storageAccount: core.getInput('soc-storage-account'),
             storageKey: core.getInput('soc-storage-key'),
-            container: core.getInput('soc-container'),
+            networkContainer: core.getInput('soc-network-container'),
+            processContainer: core.getInput('soc-process-container'),
             // Future: add sasUrl here and branch in sendToSOC
         },
     };
@@ -45,8 +46,15 @@ async function run(config) {
     await uploadSBOMArtifacts(parseSBOMEntries(stopOutput));
 
     const jobSummary = readJobSummary();
-    const socPayload = buildSOCPayload({ stopOutput, jobSummary, exitCode });
-    await sendToSOC(config.soc, socPayload);
+    const meta = buildCommonMetadata({ stopOutput, exitCode });
+    const processTree = parseProcessTree(jobSummary);
+
+    if (processTree.parseError) {
+        core.warning(`SOC: process tree parse issue (non-fatal): ${processTree.parseError}`);
+    }
+
+    await sendToSOC(config.soc, config.soc.networkContainer, { ...meta, networkEvents: parseNetworkEventsFromJobSummary(jobSummary) });
+    await sendToSOC(config.soc, config.soc.processContainer, { ...meta, processTree });
 
     if (exitCode !== 0) {
         throw new Error(`Failed stopping Cimon process: ${exitCode}`);
@@ -116,13 +124,7 @@ function readJobSummary() {
     return '';
 }
 
-function buildSOCPayload({ stopOutput, jobSummary, exitCode }) {
-    const processTree = parseProcessTree(jobSummary);
-
-    if (processTree.parseError) {
-        core.warning(`SOC: process tree parse issue (non-fatal): ${processTree.parseError}`);
-    }
-
+function buildCommonMetadata({ stopOutput, exitCode }) {
     return {
         healthy: exitCode === 0,
         detectedRisks: parseDetectedRisks(stopOutput),
@@ -132,13 +134,10 @@ function buildSOCPayload({ stopOutput, jobSummary, exitCode }) {
         runnerOs: process.env.RUNNER_OS,
         imageVersion: process.env.ImageVersion,
         cimonVersion: process.env.CIMON_VERSION,
-        networkEvents: parseNetworkEventsFromJobSummary(jobSummary),
-        processTree,
-        sbomEntries: parseSBOMEntries(stopOutput),
     };
 }
 
-async function sendToSOC(socConfig, payload) {
+async function sendToSOC(socConfig, container, payload) {
     if (!socConfig.storageAccount || !socConfig.storageKey) return;
 
     const timestamp = new Date().toISOString().replace(/[:\-T]/g, '').slice(0, 15);
@@ -152,13 +151,13 @@ async function sendToSOC(socConfig, payload) {
         );
         const body = JSON.stringify(payload, null, 2);
         await serviceClient
-            .getContainerClient(socConfig.container)
+            .getContainerClient(container)
             .getBlockBlobClient(blobName)
             .upload(body, Buffer.byteLength(body), {
                 blobHTTPHeaders: { blobContentType: 'application/json' },
             });
 
-        core.info(`SOC: event written to blob storage (${socConfig.container}/${blobName})`);
+        core.info(`SOC: event written to blob storage (${container}/${blobName})`);
     } catch (err) {
         core.warning(`SOC: blob upload failed (non-fatal): ${err.message}`);
     }

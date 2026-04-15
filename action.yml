@@ -87,10 +87,14 @@ inputs:
     description: Azure Storage account key. Store as a GitHub Actions Secret.
     required: false
     default: ''
-  soc-container:
-    description: Azure Blob container to write events into. Store as a GitHub Actions Variable.
+  soc-network-container:
+    description: Azure Blob container for network events. Store as a GitHub Actions Variable.
     required: false
-    default: 'cimon-events'
+    default: 'cimon-network-events'
+  soc-process-container:
+    description: Azure Blob container for process tree events. Store as a GitHub Actions Variable.
+    required: false
+    default: 'cimon-process-events'
 
 runs:
   using: node20
